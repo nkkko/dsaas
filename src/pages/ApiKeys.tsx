@@ -1,72 +1,155 @@
-import { Card } from '@/components/ui/card';
+import { useState, useEffect } from 'react';
+import { daytonaClient, type ApiKey } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { 
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export function ApiKeys() {
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    loadKeys();
+  }, []);
+
+  async function loadKeys() {
+    setLoading(true);
+    setError(null);
+    try {
+      const apiKeys = await daytonaClient.listApiKeys();
+      console.log('Loaded API keys:', apiKeys);
+      setKeys(apiKeys.filter(key => !['default', 'app'].includes(key.name)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load API keys';
+      console.error('Error loading keys:', error);
+      setError(message);
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateKey(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setNewKey(null);
+
+    try {
+      console.log('Creating new key with name:', newKeyName);
+      const key = await daytonaClient.generateApiKey(newKeyName);
+      console.log('New key created:', key);
+      setNewKey(key);
+      toast({
+        title: 'Success',
+        description: 'API key created successfully',
+      });
+      setNewKeyName('');
+      await loadKeys();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create API key';
+      console.error('Error creating key:', error);
+      setError(message);
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">API Keys</h1>
-      <Card className="p-6">
-        <div className="flex gap-4 mb-6">
-          <Input placeholder="API Key Name" className="max-w-sm" />
-          <Button>Create New Key</Button>
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead className="w-24">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow>
-              <TableCell>default-key</TableCell>
-              <TableCell>client</TableCell>
-              <TableCell>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                      <Trash2 size={18} />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete API Key</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Are you sure you want to delete this API key? This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
+      <Card>
+        <CardHeader>
+          <CardTitle>API Keys</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {newKey && (
+            <Alert className="mb-4">
+              <AlertDescription>
+                <div className="font-mono break-all">
+                  New API Key: {newKey}
+                </div>
+                <div className="text-sm text-muted-foreground mt-2">
+                  Save this key now! You won't be able to see it again.
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <form onSubmit={handleCreateKey} className="flex gap-4 mb-6">
+            <Input
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              placeholder="API Key Name"
+              pattern="[a-zA-Z0-9-_]+"
+              required
+              disabled={loading}
+              className="flex-1"
+            />
+            <Button type="submit" disabled={loading}>
+              {loading ? 'Creating...' : 'Create New Key'}
+            </Button>
+          </form>
+
+          <div className="space-y-4">
+            {keys.length === 0 && !loading && (
+              <div className="text-center text-muted-foreground py-4">
+                No API keys found. Create one above.
+              </div>
+            )}
+
+            {keys.map((key) => (
+              <div
+                key={key.keyHash}
+                className="flex justify-between items-center p-4 border rounded bg-muted/50"
+              >
+                <div>
+                  <div className="font-mono">{key.name}</div>
+                  <div className="text-sm text-muted-foreground">Type: {key.type}</div>
+                </div>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to delete the key "${key.name}"?`)) {
+                      daytonaClient.revokeApiKey(key.name)
+                        .then(loadKeys)
+                        .catch(error => {
+                          toast({
+                            title: 'Error',
+                            description: 'Failed to delete API key',
+                            variant: 'destructive',
+                          });
+                        });
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
       </Card>
     </div>
   );
